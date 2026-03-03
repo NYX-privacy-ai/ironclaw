@@ -58,8 +58,7 @@ pub fn enable_compilation_cache(
                 .to_string_lossy()
                 .replace('\\', "\\\\")
                 .replace('"', "\\\"");
-            let toml_content =
-                format!("[cache]\nenabled = true\ndirectory = \"{}\"\n", escaped);
+            let toml_content = format!("[cache]\nenabled = true\ndirectory = \"{}\"\n", escaped);
             std::fs::write(&toml_path, toml_content)?;
             wasmtime_config.cache_config_load(&toml_path)?;
             Ok(())

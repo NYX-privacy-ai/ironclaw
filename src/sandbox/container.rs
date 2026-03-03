@@ -27,8 +27,8 @@
 
 use std::collections::HashMap;
 #[cfg(unix)]
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use bollard::Docker;
