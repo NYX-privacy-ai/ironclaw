@@ -290,8 +290,7 @@ mod tests {
         for result in &results {
             // The path must be a real file path, never a UUID string
             assert!(
-                !result.document_path.contains('-')
-                    || !result.document_path.chars().all(|c| c.is_ascii_hexdigit() || c == '-'),
+                Uuid::parse_str(&result.document_path).is_err(),
                 "document_path looks like a UUID ('{}'), expected a file path",
                 result.document_path
             );
