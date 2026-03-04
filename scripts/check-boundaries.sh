@@ -186,6 +186,30 @@ fi
 echo
 
 # --------------------------------------------------------------------------
+# Check 5: No silent test-skip patterns (try_connect, is_available, etc.)
+# --------------------------------------------------------------------------
+# Tests must fail loudly when prerequisites are missing, not silently skip.
+# The correct approach is feature-flag gating (#![cfg(feature = "integration")]).
+# Patterns like try_connect().is_none() { return; } hide broken tests.
+# --------------------------------------------------------------------------
+
+echo "--- Check 5: No silent test-skip patterns ---"
+
+skip_results=$(grep -rn 'try_connect\|is_available.*return\|is_none.*return\|is_err.*return.*//.*skip' tests/ \
+    --include='*.rs' \
+    || true)
+
+if [ -n "$skip_results" ]; then
+    echo "VIOLATION: Silent test-skip patterns found (use feature gates instead):"
+    echo "$skip_results"
+    echo
+    violations=$((violations + 1))
+else
+    echo "OK"
+fi
+echo
+
+# --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
 
