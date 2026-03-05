@@ -1,0 +1,138 @@
+{
+  "model_name": "advanced-routine-news-digest",
+  "expects": {
+    "tools_used": ["routine_create", "memory_write", "memory_search", "echo"],
+    "all_tools_succeeded": true,
+    "min_responses": 3
+  },
+  "turns": [
+    {
+      "user_input": "Set up a daily morning tech news routine that fetches headlines, writes a digest to memory, and sends me a summary. Use full_job mode so it can use tools, and pre-authorize the message tool.",
+      "expects": {
+        "tools_used": ["routine_create"],
+        "response_contains": ["routine", "created"]
+      },
+      "steps": [
+        {
+          "request_hint": { "last_user_message_contains": "routine" },
+          "response": {
+            "type": "tool_calls",
+            "tool_calls": [
+              {
+                "id": "call_routine_1",
+                "name": "routine_create",
+                "arguments": {
+                  "name": "morning-tech-news",
+                  "description": "Fetch tech headlines, write digest, send summary",
+                  "trigger_type": "cron",
+                  "schedule": "0 0 9 * * MON-FRI",
+                  "prompt": "Fetch the latest tech news headlines, summarize them into a concise digest, save the digest to workspace memory, and send the summary to the user.",
+                  "action_type": "full_job",
+                  "tool_permissions": ["message"],
+                  "cooldown_secs": 3600
+                }
+              }
+            ],
+            "input_tokens": 120,
+            "output_tokens": 60
+          }
+        },
+        {
+          "response": {
+            "type": "text",
+            "content": "I've created the **morning-tech-news** routine. It will run every weekday at 9:00 AM using full_job mode with tool access. The `message` tool is pre-authorized so it can send you the digest without needing approval. UnlessAutoApproved tools like file ops, shell, and memory are automatically permitted in routine jobs.",
+            "input_tokens": 200,
+            "output_tokens": 50
+          }
+        }
+      ]
+    },
+    {
+      "user_input": "Great. Now simulate what the routine would do: write a sample tech news digest to memory and show me the summary.",
+      "expects": {
+        "tools_used": ["echo", "memory_write"],
+        "response_contains": ["digest", "saved"]
+      },
+      "steps": [
+        {
+          "request_hint": { "last_user_message_contains": "simulate" },
+          "response": {
+            "type": "tool_calls",
+            "tool_calls": [
+              {
+                "id": "call_echo_fetch",
+                "name": "echo",
+                "arguments": {
+                  "message": "Fetching tech news headlines..."
+                }
+              }
+            ],
+            "input_tokens": 180,
+            "output_tokens": 30
+          }
+        },
+        {
+          "response": {
+            "type": "tool_calls",
+            "tool_calls": [
+              {
+                "id": "call_mw_digest",
+                "name": "memory_write",
+                "arguments": {
+                  "content": "# Tech News Digest - 2026-03-05\n\n## Top Headlines\n\n1. **Rust 2026 Edition Released** - The Rust team announced the 2026 edition with async closures, generator syntax, and improved compile times.\n\n2. **WASM Component Model 1.0 Finalized** - The WebAssembly Component Model reached 1.0, enabling cross-language interoperability in sandboxed environments.\n\n3. **NEAR Protocol Launches AI Agent Framework** - NEAR released an open-source framework for building autonomous AI agents with on-chain identity and payments.\n\n## Summary\nKey themes: systems programming advances, WebAssembly maturation, and AI-blockchain convergence.",
+                  "target": "routines/morning-tech-news/digest-2026-03-05.md",
+                  "append": false
+                }
+              }
+            ],
+            "input_tokens": 220,
+            "output_tokens": 80
+          }
+        },
+        {
+          "response": {
+            "type": "text",
+            "content": "Done! I've simulated the routine workflow:\n\n1. **Fetched headlines** (simulated via echo)\n2. **Saved digest** to `routines/morning-tech-news/digest-2026-03-05.md`\n\nHere's today's summary:\n- Rust 2026 Edition released with async closures and generator syntax\n- WASM Component Model 1.0 finalized for cross-language interop\n- NEAR Protocol launched an AI agent framework with on-chain identity\n\nWhen the routine runs autonomously, it will use `web_fetch` for real headlines and `message` to send you the digest.",
+            "input_tokens": 350,
+            "output_tokens": 60
+          }
+        }
+      ]
+    },
+    {
+      "user_input": "Can you search memory to verify the digest was saved correctly?",
+      "expects": {
+        "tools_used": ["memory_search"],
+        "response_contains": ["Rust", "WASM"]
+      },
+      "steps": [
+        {
+          "request_hint": { "last_user_message_contains": "search" },
+          "response": {
+            "type": "tool_calls",
+            "tool_calls": [
+              {
+                "id": "call_ms_verify",
+                "name": "memory_search",
+                "arguments": {
+                  "query": "tech news digest headlines 2026",
+                  "limit": 3
+                }
+              }
+            ],
+            "input_tokens": 400,
+            "output_tokens": 25
+          }
+        },
+        {
+          "response": {
+            "type": "text",
+            "content": "The digest was saved correctly. Memory search found the document at `routines/morning-tech-news/digest-2026-03-05.md` with all three headlines:\n\n1. Rust 2026 Edition with async closures\n2. WASM Component Model 1.0\n3. NEAR Protocol AI Agent Framework\n\nThe routine is ready to run on its cron schedule (weekdays at 9 AM). Each run will overwrite the daily digest and send you a summary via the pre-authorized `message` tool.",
+            "input_tokens": 500,
+            "output_tokens": 55
+          }
+        }
+      ]
+    }
+  ]
+}
