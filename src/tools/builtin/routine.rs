@@ -93,6 +93,11 @@ impl Tool for RoutineCreateTool {
                 "cooldown_secs": {
                     "type": "integer",
                     "description": "Minimum seconds between fires (default: 300)"
+                },
+                "tool_permissions": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Tool names pre-authorized for Always-approval tools in full_job mode (e.g. ['shell', 'message']). UnlessAutoApproved tools are automatically permitted in routines."
                 }
             },
             "required": ["name", "trigger_type", "prompt"]
@@ -192,11 +197,23 @@ impl Tool for RoutineCreateTool {
                 context_paths,
                 max_tokens: 4096,
             },
-            "full_job" => RoutineAction::FullJob {
-                title: name.to_string(),
-                description: prompt.to_string(),
-                max_iterations: 10,
-            },
+            "full_job" => {
+                let tool_permissions = params
+                    .get("tool_permissions")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                RoutineAction::FullJob {
+                    title: name.to_string(),
+                    description: prompt.to_string(),
+                    max_iterations: 10,
+                    tool_permissions,
+                }
+            }
             other => {
                 return Err(ToolError::InvalidParameters(format!(
                     "unknown action_type: {other}"

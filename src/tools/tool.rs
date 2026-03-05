@@ -28,6 +28,48 @@ impl ApprovalRequirement {
     }
 }
 
+/// Approval context for tool execution in different environments.
+///
+/// Interactive sessions use session-level auto-approve lists managed by the UI.
+/// Autonomous contexts (routines, background jobs) use pre-authorized tool sets
+/// configured at creation time.
+#[derive(Debug, Clone)]
+pub enum ApprovalContext {
+    /// Autonomous job with no interactive user. `UnlessAutoApproved` tools are
+    /// pre-approved. `Always` tools are blocked unless listed in `allowed_tools`.
+    Autonomous {
+        /// Tool names that are pre-authorized even for `Always` approval.
+        allowed_tools: std::collections::HashSet<String>,
+    },
+}
+
+impl ApprovalContext {
+    /// Create an autonomous context with no extra tool permissions.
+    pub fn autonomous() -> Self {
+        Self::Autonomous {
+            allowed_tools: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Create an autonomous context with specific tools pre-authorized.
+    pub fn autonomous_with_tools(tools: impl IntoIterator<Item = String>) -> Self {
+        Self::Autonomous {
+            allowed_tools: tools.into_iter().collect(),
+        }
+    }
+
+    /// Check whether a tool invocation is blocked in this context.
+    pub fn is_blocked(&self, tool_name: &str, requirement: ApprovalRequirement) -> bool {
+        match self {
+            Self::Autonomous { allowed_tools } => match requirement {
+                ApprovalRequirement::Never => false,
+                ApprovalRequirement::UnlessAutoApproved => false,
+                ApprovalRequirement::Always => !allowed_tools.contains(tool_name),
+            },
+        }
+    }
+}
+
 /// Per-tool rate limit configuration for built-in tool invocations.
 ///
 /// Controls how many times a tool can be invoked per user, per time window.
@@ -732,5 +774,28 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("headers.items"));
         assert!(errors[0].contains("\"missing_field\""));
+    }
+
+    #[test]
+    fn test_approval_context_autonomous_allows_unless_auto_approved() {
+        let ctx = ApprovalContext::autonomous();
+        assert!(!ctx.is_blocked("shell", ApprovalRequirement::Never));
+        assert!(!ctx.is_blocked("shell", ApprovalRequirement::UnlessAutoApproved));
+        assert!(ctx.is_blocked("shell", ApprovalRequirement::Always));
+    }
+
+    #[test]
+    fn test_approval_context_autonomous_with_tools_allows_always() {
+        let ctx =
+            ApprovalContext::autonomous_with_tools(["shell".to_string(), "message".to_string()]);
+        assert!(!ctx.is_blocked("shell", ApprovalRequirement::Always));
+        assert!(!ctx.is_blocked("message", ApprovalRequirement::Always));
+        assert!(ctx.is_blocked("http", ApprovalRequirement::Always));
+    }
+
+    #[test]
+    fn test_approval_context_never_always_passes() {
+        let ctx = ApprovalContext::autonomous();
+        assert!(!ctx.is_blocked("any_tool", ApprovalRequirement::Never));
     }
 }

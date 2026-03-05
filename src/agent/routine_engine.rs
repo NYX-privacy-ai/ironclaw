@@ -23,6 +23,7 @@ use crate::agent::Scheduler;
 use crate::agent::routine::{
     NotifyConfig, Routine, RoutineAction, RoutineRun, RunStatus, Trigger, next_cron_fire,
 };
+use crate::tools::ApprovalContext;
 use crate::channels::{IncomingMessage, OutgoingResponse};
 use crate::config::RoutineConfig;
 use crate::db::Database;
@@ -327,7 +328,19 @@ async fn execute_routine(ctx: EngineContext, routine: Routine, run: RoutineRun) 
             title,
             description,
             max_iterations,
-        } => execute_full_job(&ctx, &routine, &run, title, description, *max_iterations).await,
+            tool_permissions,
+        } => {
+            execute_full_job(
+                &ctx,
+                &routine,
+                &run,
+                title,
+                description,
+                *max_iterations,
+                tool_permissions,
+            )
+            .await
+        }
     };
 
     // Decrement running count
@@ -418,6 +431,7 @@ async fn execute_full_job(
     title: &str,
     description: &str,
     max_iterations: u32,
+    tool_permissions: &[String],
 ) -> Result<(RunStatus, Option<String>, Option<i32>), RoutineError> {
     let scheduler = ctx
         .scheduler
@@ -426,10 +440,33 @@ async fn execute_full_job(
             reason: "scheduler not available".to_string(),
         })?;
 
+    // Set the message tool's default channel/target from the routine's notify config
+    // so the LLM can send results without triggering cross-channel approval.
+    if let Some(channel) = &routine.notify.channel {
+        scheduler
+            .tools()
+            .set_message_tool_context(
+                Some(channel.clone()),
+                Some(routine.notify.user.clone()),
+            )
+            .await;
+    }
+
     let metadata = serde_json::json!({ "max_iterations": max_iterations });
 
+    // Build approval context: UnlessAutoApproved tools are auto-approved for routines;
+    // Always tools require explicit listing in tool_permissions.
+    let approval_context =
+        ApprovalContext::autonomous_with_tools(tool_permissions.iter().cloned());
+
     let job_id = scheduler
-        .dispatch_job(&routine.user_id, title, description, Some(metadata))
+        .dispatch_job_with_context(
+            &routine.user_id,
+            title,
+            description,
+            Some(metadata),
+            approval_context,
+        )
         .await
         .map_err(|e| RoutineError::JobDispatchFailed {
             reason: format!("failed to dispatch job: {e}"),
