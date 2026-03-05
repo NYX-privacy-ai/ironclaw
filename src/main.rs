@@ -484,8 +484,6 @@ async fn async_main() -> anyhow::Result<()> {
     let mut sse_sender: Option<
         tokio::sync::broadcast::Sender<ironclaw::channels::web::types::SseEvent>,
     > = None;
-    let mut gateway_state: Option<std::sync::Arc<ironclaw::channels::web::server::GatewayState>> =
-        None;
     if let Some(ref gw_config) = config.channels.gateway {
         let mut gw =
             GatewayChannel::new(gw_config.clone()).with_llm_provider(Arc::clone(&components.llm));
@@ -508,6 +506,7 @@ async fn async_main() -> anyhow::Result<()> {
         if let Some(ref jm) = container_job_manager {
             gw = gw.with_job_manager(Arc::clone(jm));
         }
+        gw = gw.with_scheduler(scheduler_slot.clone());
         if let Some(ref sr) = components.skill_registry {
             gw = gw.with_skill_registry(Arc::clone(sr));
         }
@@ -542,7 +541,6 @@ async fn async_main() -> anyhow::Result<()> {
         // IMPORTANT: This must come after all `with_*` calls since `rebuild_state`
         // creates a new SseManager, which would orphan this sender.
         sse_sender = Some(gw.state().sse.sender());
-        gateway_state = Some(Arc::clone(gw.state()));
 
         channel_names.push("gateway".to_string());
         channels.add(Box::new(gw)).await;
@@ -618,7 +616,7 @@ async fn async_main() -> anyhow::Result<()> {
                 rt,
                 ps,
                 router,
-                config.channels.telegram_owner_id,
+                config.channels.wasm_channel_owner_ids.clone(),
             )
             .await;
         tracing::info!("Channel runtime wired into extension manager for hot-activation");
@@ -649,11 +647,22 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Wire SSE sender into extension manager for broadcasting status events.
     if let Some(ref ext_mgr) = components.extension_manager
-        && let Some(sender) = sse_sender
+        && let Some(ref sender) = sse_sender
     {
-        ext_mgr.set_sse_sender(sender).await;
+        ext_mgr.set_sse_sender(sender.clone()).await;
     }
 
+    // Snapshot memory for trace recording before the agent starts
+    if let Some(ref recorder) = components.recording_handle
+        && let Some(ref ws) = components.workspace
+    {
+        recorder.snapshot_memory(ws).await;
+    }
+
+    let http_interceptor = components
+        .recording_handle
+        .as_ref()
+        .map(|r| r.http_interceptor());
     let deps = AgentDeps {
         store: components.db,
         llm: components.llm,
@@ -667,6 +676,8 @@ async fn async_main() -> anyhow::Result<()> {
         skills_config: config.skills.clone(),
         hooks: components.hooks,
         cost_guard: components.cost_guard,
+        sse_tx: sse_sender,
+        http_interceptor,
     };
 
     let agent = Agent::new(
@@ -687,6 +698,13 @@ async fn async_main() -> anyhow::Result<()> {
 
     // ── Shutdown ────────────────────────────────────────────────────────
 
+    // Flush LLM trace recording if enabled
+    if let Some(ref recorder) = components.recording_handle
+        && let Err(e) = recorder.flush().await
+    {
+        tracing::warn!("Failed to write LLM trace: {}", e);
+    }
+
     if let Some(ref mut server) = webhook_server {
         server.shutdown().await;
     }
@@ -699,16 +717,6 @@ async fn async_main() -> anyhow::Result<()> {
     }
 
     tracing::info!("Agent shutdown complete");
-
-    // Check if a restart was requested via the gateway API.
-    if let Some(ref gw_state) = gateway_state
-        && gw_state
-            .restart_requested
-            .load(std::sync::atomic::Ordering::Relaxed)
-    {
-        eprintln!("Restarting IronClaw (exit code 75)...");
-        std::process::exit(75);
-    }
 
     Ok(())
 }
@@ -911,11 +919,14 @@ async fn setup_wasm_channels(
     let pairing_store = Arc::new(PairingStore::new());
     let settings_store: Option<Arc<dyn ironclaw::db::SettingsStore>> =
         database.map(|db| Arc::clone(db) as Arc<dyn ironclaw::db::SettingsStore>);
-    let loader = WasmChannelLoader::new(
+    let mut loader = WasmChannelLoader::new(
         Arc::clone(&runtime),
         Arc::clone(&pairing_store),
         settings_store,
     );
+    if let Some(secrets) = secrets_store {
+        loader = loader.with_secrets_store(Arc::clone(secrets));
+    }
 
     let results = match loader
         .load_from_dir(&config.channels.wasm_channels_dir)
@@ -979,9 +990,11 @@ async fn setup_wasm_channels(
                 );
             }
 
-            // Inject owner_id for Telegram so the bot only responds to the bound user.
-            if channel_name == "telegram"
-                && let Some(owner_id) = config.channels.telegram_owner_id
+            // Inject owner_id if configured for this channel.
+            if let Some(&owner_id) = config
+                .channels
+                .wasm_channel_owner_ids
+                .get(channel_name.as_str())
             {
                 config_updates.insert("owner_id".to_string(), serde_json::json!(owner_id));
             }

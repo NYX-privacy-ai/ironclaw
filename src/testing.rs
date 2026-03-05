@@ -293,6 +293,8 @@ impl TestHarnessBuilder {
             skills_config: SkillsConfig::default(),
             hooks,
             cost_guard,
+            sse_tx: None,
+            http_interceptor: None,
         };
 
         TestHarness {

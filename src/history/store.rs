@@ -237,6 +237,7 @@ impl Store {
                     total_tokens_used: 0,
                     max_tokens: 0,
                     extra_env: std::sync::Arc::new(std::collections::HashMap::new()),
+                    http_interceptor: None,
                 }))
             }
             None => Ok(None),
@@ -819,6 +820,21 @@ impl Store {
                 failure_reason: r.get("failure_reason"),
             })
             .collect())
+    }
+
+    /// Get the failure reason for a single agent job.
+    pub async fn get_agent_job_failure_reason(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<String>, DatabaseError> {
+        let conn = self.conn().await?;
+        let row = conn
+            .query_opt(
+                "SELECT failure_reason FROM agent_jobs WHERE id = $1",
+                &[&id],
+            )
+            .await?;
+        Ok(row.and_then(|r| r.get::<_, Option<String>>("failure_reason")))
     }
 
     /// Summary counts for agent (non-sandbox) jobs.
