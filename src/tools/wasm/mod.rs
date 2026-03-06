@@ -131,8 +131,9 @@ pub use storage::{
 
 // Loader
 pub use loader::{
-    DiscoveredTool, LoadResults, WasmLoadError, WasmToolLoader, discover_dev_tools, discover_tools,
-    load_dev_tools, resolve_wasm_target_dir, wasm_artifact_path,
+    DiscoveredTool, LoadResults, WasmLoadError, WasmToolLoader, check_wit_version_compat,
+    discover_dev_tools, discover_tools, load_dev_tools, resolve_wasm_target_dir,
+    wasm_artifact_path,
 };
 
 // Capabilities schema (for parsing *.capabilities.json files)

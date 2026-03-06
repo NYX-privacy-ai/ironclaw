@@ -116,15 +116,18 @@ fn validate_save_to_path(save_to: &str) -> Result<std::path::PathBuf, ToolError>
             "save_to path must be under /tmp/".to_string(),
         ));
     }
-    let save_path = std::path::Path::new(save_to);
-    if let Some(parent) = save_path.parent() {
+    // Validate path BEFORE creating directories to prevent traversal-based
+    // directory creation outside /tmp (e.g. `/tmp/../../etc/passwd`).
+    let tmp_base = std::path::Path::new("/tmp");
+    let validated =
+        crate::tools::builtin::path_utils::validate_path(save_to, Some(tmp_base))?;
+    // Only create parent directories for the validated (safe) path
+    if let Some(parent) = validated.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
             ToolError::ExecutionFailed(format!("failed to create directory: {}", e))
         })?;
     }
-    // Delegate to the shared path validator with /tmp as sandbox base
-    let tmp_base = std::path::Path::new("/tmp");
-    crate::tools::builtin::path_utils::validate_path(save_to, Some(tmp_base))
+    Ok(validated)
 }
 
 pub(crate) fn validate_url(url: &str) -> Result<reqwest::Url, ToolError> {

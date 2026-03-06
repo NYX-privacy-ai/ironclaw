@@ -146,6 +146,26 @@ pub struct InstallResult {
     pub message: String,
 }
 
+/// Result of upgrading one or more extensions.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpgradeResult {
+    /// Per-extension upgrade outcomes.
+    pub results: Vec<UpgradeOutcome>,
+    /// Summary message.
+    pub message: String,
+}
+
+/// Outcome for a single extension upgrade.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpgradeOutcome {
+    pub name: String,
+    pub kind: ExtensionKind,
+    /// What happened: "upgraded", "already_up_to_date", "failed", "not_in_registry".
+    pub status: String,
+    /// Human-readable detail.
+    pub detail: String,
+}
+
 /// Auth readiness state for the extensions list UI.
 ///
 /// Used by `check_tool_auth_status` and `check_channel_auth_status` to
