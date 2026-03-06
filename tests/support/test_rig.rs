@@ -102,6 +102,8 @@ pub struct TestRig {
     channel: Arc<TestChannel>,
     /// Instrumented LLM for collecting token/call metrics.
     instrumented_llm: Arc<InstrumentedLlm>,
+    /// The underlying TraceLlm (if built from a trace), for inspecting captured requests.
+    trace_llm: Option<Arc<TraceLlm>>,
     /// When the rig was created (for wall-time measurement).
     start_time: Instant,
     /// Maximum tool-call iterations per agentic loop (for count-based limit detection).
@@ -117,6 +119,21 @@ impl TestRig {
     /// Inject a user message into the agent.
     pub async fn send_message(&self, content: &str) {
         self.channel.send_message(content).await;
+    }
+
+    /// Inject a raw `IncomingMessage` (for tests that need attachments, etc.).
+    pub async fn send_incoming(&self, msg: ironclaw::channels::IncomingMessage) {
+        self.channel.send_incoming(msg).await;
+    }
+
+    /// Return all message lists that were sent to the LLM provider.
+    ///
+    /// Only available when the rig was built with a `TraceLlm` (i.e., via `.with_trace()`).
+    pub fn captured_llm_requests(&self) -> Vec<Vec<ironclaw::llm::ChatMessage>> {
+        self.trace_llm
+            .as_ref()
+            .map(|t| t.captured_requests())
+            .unwrap_or_default()
     }
 
     /// Wait until at least `n` responses have been captured, or `timeout` elapses.
@@ -436,10 +453,14 @@ impl TestRigBuilder {
             .map(|t| t.http_exchanges.clone())
             .unwrap_or_default();
 
+        let trace_llm_ref: Option<Arc<TraceLlm>>;
         let base_llm: Arc<dyn LlmProvider> = if let Some(llm) = self.llm {
+            trace_llm_ref = None;
             llm
         } else if let Some(trace) = self.trace {
-            Arc::new(TraceLlm::from_trace(trace))
+            let t = Arc::new(TraceLlm::from_trace(trace));
+            trace_llm_ref = Some(Arc::clone(&t));
+            t
         } else {
             let trace = LlmTrace::single_turn(
                 "test-rig-default",
@@ -454,7 +475,9 @@ impl TestRigBuilder {
                     expected_tool_results: Vec::new(),
                 }],
             );
-            Arc::new(TraceLlm::from_trace(trace))
+            let t = Arc::new(TraceLlm::from_trace(trace));
+            trace_llm_ref = Some(Arc::clone(&t));
+            t
         };
         let instrumented = Arc::new(InstrumentedLlm::new(base_llm));
         let llm: Arc<dyn LlmProvider> = Arc::clone(&instrumented) as Arc<dyn LlmProvider>;
@@ -533,6 +556,7 @@ impl TestRigBuilder {
         TestRig {
             channel: test_channel,
             instrumented_llm: instrumented,
+            trace_llm: trace_llm_ref,
             start_time: Instant::now(),
             max_tool_iterations: self.max_tool_iterations,
             agent_handle: Some(agent_handle),

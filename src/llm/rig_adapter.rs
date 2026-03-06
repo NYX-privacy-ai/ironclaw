@@ -10,8 +10,9 @@ use rig::completion::{
     ToolDefinition as RigToolDefinition, Usage as RigUsage,
 };
 use rig::message::{
-    Message as RigMessage, ToolChoice as RigToolChoice, ToolFunction, ToolResult as RigToolResult,
-    ToolResultContent, UserContent,
+    DocumentSourceKind, Image, ImageMediaType, Message as RigMessage, MimeType,
+    ToolChoice as RigToolChoice, ToolFunction, ToolResult as RigToolResult, ToolResultContent,
+    UserContent,
 };
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -230,7 +231,45 @@ fn convert_messages(messages: &[ChatMessage]) -> (Option<String>, Vec<RigMessage
                 }
             }
             crate::llm::Role::User => {
-                history.push(RigMessage::user(&msg.content));
+                if msg.content_parts.is_empty() {
+                    history.push(RigMessage::user(&msg.content));
+                } else {
+                    // Build multimodal user message with text + image parts
+                    let mut contents: Vec<UserContent> =
+                        vec![UserContent::text(&msg.content)];
+                    for part in &msg.content_parts {
+                        if let crate::llm::ContentPart::ImageUrl { image_url } = part {
+                            // Parse data: URL for base64 images, or use raw URL
+                            let image = if let Some(rest) =
+                                image_url.url.strip_prefix("data:")
+                            {
+                                // Format: data:<mime>;base64,<data>
+                                let (mime, b64) = rest
+                                    .split_once(";base64,")
+                                    .unwrap_or(("image/jpeg", rest));
+                                Image {
+                                    data: DocumentSourceKind::base64(b64),
+                                    media_type: ImageMediaType::from_mime_type(mime),
+                                    detail: None,
+                                    additional_params: None,
+                                }
+                            } else {
+                                Image {
+                                    data: DocumentSourceKind::url(&image_url.url),
+                                    media_type: None,
+                                    detail: None,
+                                    additional_params: None,
+                                }
+                            };
+                            contents.push(UserContent::Image(image));
+                        }
+                    }
+                    if let Ok(many) = OneOrMany::many(contents) {
+                        history.push(RigMessage::User { content: many });
+                    } else {
+                        history.push(RigMessage::user(&msg.content));
+                    }
+                }
             }
             crate::llm::Role::Assistant => {
                 if let Some(ref tool_calls) = msg.tool_calls {
@@ -632,6 +671,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: crate::llm::Role::Tool,
             content: "result text".to_string(),
+            content_parts: Vec::new(),
             tool_call_id: None,
             name: Some("search".to_string()),
             tool_calls: None,
@@ -781,6 +821,7 @@ mod tests {
         let tool_result_msg = ChatMessage {
             role: crate::llm::Role::Tool,
             content: "search results here".to_string(),
+            content_parts: Vec::new(),
             tool_call_id: None,
             name: Some("search".to_string()),
             tool_calls: None,

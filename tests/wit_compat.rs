@@ -261,6 +261,12 @@ fn instantiate_channel_component(
     ) -> Result<(), String> {
         stub_shared_host_functions(host)?;
 
+        host.func_new("store-attachment-data", |_ctx, _args, results| {
+            results[0] = wasmtime::component::Val::Result(Ok(None));
+            Ok(())
+        })
+        .map_err(|e| format!("stub 'store-attachment-data': {e}"))?;
+
         host.func_new("emit-message", |_ctx, _args, _results| Ok(()))
             .map_err(|e| format!("stub 'emit-message': {e}"))?;
 
