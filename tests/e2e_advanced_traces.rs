@@ -252,7 +252,12 @@ mod advanced {
     }
 
     // -----------------------------------------------------------------------
-    // 6. Routine news digest (multi-turn: create, list, simulate, verify)
+    // 6. Routine news digest (end-to-end: create, fire, verify message)
+    //
+    // Exercises the full routine execution stack:
+    //   routine_create → routine_fire → RoutineEngine::fire_manual →
+    //   Scheduler::dispatch_job_with_context → Worker (autonomous) →
+    //   echo + memory_write + message (broadcast to test channel)
     // -----------------------------------------------------------------------
 
     #[tokio::test]
@@ -264,56 +269,63 @@ mod advanced {
             .build()
             .await;
 
-        let all_responses = rig.run_and_verify_trace(&trace, TIMEOUT).await;
-
-        // Verify all 4 turns produced responses.
-        assert!(!all_responses[0].is_empty(), "Turn 1: no response");
-        assert!(!all_responses[1].is_empty(), "Turn 2: no response");
-        assert!(!all_responses[2].is_empty(), "Turn 3: no response");
-        assert!(!all_responses[3].is_empty(), "Turn 4: no response");
-
-        // Turn 1: routine creation confirmation.
-        let t1 = all_responses[0][0].content.to_lowercase();
+        // Turn 1: Create the routine (manual trigger, full_job, message pre-authorized).
+        rig.send_message(
+            "Set up a morning tech news routine with manual trigger \
+             and full_job mode. Pre-authorize the message tool.",
+        )
+        .await;
+        let r1 = rig.wait_for_responses(1, TIMEOUT).await;
+        assert!(!r1.is_empty(), "Turn 1: no response");
+        let t1 = r1[0].content.to_lowercase();
         assert!(
             t1.contains("routine") || t1.contains("created"),
-            "Turn 1: missing routine/created in: {t1}"
+            "Turn 1: expected routine/created, got: {t1}"
         );
 
-        // Turn 2: routine_list confirms persistence.
-        let t2 = all_responses[1][0].content.to_lowercase();
+        // Turn 2: Fire the routine. This dispatches a full_job through the scheduler.
+        // The routine worker runs asynchronously and consumes TraceLlm steps for
+        // echo, memory_write, and message tool calls.
+        rig.send_message("Fire it now.").await;
+
+        // Wait for:
+        //   - response 2: main conversation reply ("fired the routine")
+        //   - response 3: message tool broadcast from routine worker ("Tech News Digest: ...")
+        // The routine worker runs asynchronously, so we wait for 3 total responses.
+        let responses = rig.wait_for_responses(3, Duration::from_secs(15)).await;
+
+        // Find the main conversation reply (from turn 2).
+        let fire_reply = &responses[1].content.to_lowercase();
         assert!(
-            t2.contains("morning-tech-news") || t2.contains("routine"),
-            "Turn 2: missing routine name in: {t2}"
+            fire_reply.contains("fired") || fire_reply.contains("running"),
+            "Turn 2: expected fired/running, got: {fire_reply}"
         );
 
-        // Turn 3: digest saved confirmation.
-        let t3 = all_responses[2][0].content.to_lowercase();
+        // The routine worker runs autonomously: echo → memory_write → message.
+        // The message tool broadcasts to the test channel, proving the full
+        // chain executed successfully (including ApprovalContext allowing the
+        // Always-approval message tool in autonomous mode).
+        let message_broadcast = responses.iter().find(|r| {
+            r.content.contains("Tech News Digest")
+                || r.content.contains("Rust 2026")
+                || r.content.contains("WASM Component Model")
+        });
         assert!(
-            t3.contains("digest") || t3.contains("saved"),
-            "Turn 3: missing digest/saved in: {t3}"
+            message_broadcast.is_some(),
+            "Routine worker should have broadcast a message. Got: {:?}",
+            responses.iter().map(|r| &r.content).collect::<Vec<_>>()
         );
 
-        // Turn 4: search verification mentions key headlines.
-        let t4 = all_responses[3][0].content.to_lowercase();
-        assert!(
-            t4.contains("rust") || t4.contains("wasm"),
-            "Turn 4: missing Rust/WASM in: {t4}"
-        );
-
-        // Verify key tools were called.
+        // Verify main conversation tools were called.
         let started = rig.tool_calls_started();
-        for tool in &[
-            "routine_create",
-            "routine_list",
-            "memory_write",
-            "memory_search",
-        ] {
+        for tool in &["routine_create", "routine_fire"] {
             assert!(
                 started.iter().any(|s| s == *tool),
                 "{tool} not called: {started:?}"
             );
         }
 
+        // Main conversation tools should have succeeded.
         let completed = rig.tool_calls_completed();
         crate::support::assertions::assert_all_tools_succeeded(&completed);
 

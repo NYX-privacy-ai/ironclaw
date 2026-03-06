@@ -620,6 +620,16 @@ mod tests {
                 }),
             ),
             (
+                "routine_fire",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Routine name" }
+                    },
+                    "required": ["name"]
+                }),
+            ),
+            (
                 "routine_history",
                 serde_json::json!({
                     "type": "object",

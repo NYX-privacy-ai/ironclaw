@@ -30,7 +30,8 @@ pub use json::JsonTool;
 pub use memory::{MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool};
 pub use message::MessageTool;
 pub use routine::{
-    RoutineCreateTool, RoutineDeleteTool, RoutineHistoryTool, RoutineListTool, RoutineUpdateTool,
+    RoutineCreateTool, RoutineDeleteTool, RoutineFireTool, RoutineHistoryTool, RoutineListTool,
+    RoutineUpdateTool,
 };
 pub use secrets_tools::{SecretDeleteTool, SecretListTool};
 pub use shell::ShellTool;

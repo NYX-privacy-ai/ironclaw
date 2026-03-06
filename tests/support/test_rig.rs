@@ -502,6 +502,11 @@ impl TestRigBuilder {
         channel_manager.add(Box::new(handle)).await;
         let channels = Arc::new(channel_manager);
 
+        // 7b. Register message tool so routines can send messages to channels.
+        deps.tools
+            .register_message_tools(Arc::clone(&channels))
+            .await;
+
         // 8. Create Agent.
         let routine_config = if self.enable_routines {
             Some(ironclaw::config::RoutineConfig {

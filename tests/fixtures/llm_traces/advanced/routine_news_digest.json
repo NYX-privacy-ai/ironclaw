@@ -1,17 +1,13 @@
 {
   "model_name": "advanced-routine-news-digest",
   "expects": {
-    "tools_used": ["routine_create", "routine_list", "memory_write", "memory_search", "echo"],
+    "tools_used": ["routine_create", "routine_fire", "echo", "memory_write", "message"],
     "all_tools_succeeded": true,
-    "min_responses": 4
+    "min_responses": 2
   },
   "turns": [
     {
-      "user_input": "Set up a daily morning tech news routine that fetches headlines, writes a digest to memory, and sends me a summary. Use full_job mode so it can use tools, and pre-authorize the message tool.",
-      "expects": {
-        "tools_used": ["routine_create"],
-        "response_contains": ["routine", "created"]
-      },
+      "user_input": "Set up a morning tech news routine with manual trigger and full_job mode. Pre-authorize the message tool.",
       "steps": [
         {
           "request_hint": { "last_user_message_contains": "routine" },
@@ -23,13 +19,12 @@
                 "name": "routine_create",
                 "arguments": {
                   "name": "morning-tech-news",
-                  "description": "Fetch tech headlines, write digest, send summary",
-                  "trigger_type": "cron",
-                  "schedule": "0 0 9 * * MON-FRI",
-                  "prompt": "Fetch the latest tech news headlines, summarize them into a concise digest, save the digest to workspace memory, and send the summary to the user.",
+                  "description": "Write tech news digest to memory, send summary",
+                  "trigger_type": "manual",
+                  "prompt": "Write a tech news digest to workspace memory, then send a summary message to the user.",
                   "action_type": "full_job",
                   "tool_permissions": ["message"],
-                  "cooldown_secs": 3600
+                  "cooldown_secs": 60
                 }
               }
             ],
@@ -40,7 +35,7 @@
         {
           "response": {
             "type": "text",
-            "content": "I've created the **morning-tech-news** routine. It will run every weekday at 9:00 AM using full_job mode with tool access. The `message` tool is pre-authorized so it can send you the digest without needing approval. UnlessAutoApproved tools like file ops, shell, and memory are automatically permitted in routine jobs.",
+            "content": "Created the **morning-tech-news** routine with manual trigger and full_job mode. The `message` tool is pre-authorized.",
             "input_tokens": 200,
             "output_tokens": 50
           }
@@ -48,59 +43,48 @@
       ]
     },
     {
-      "user_input": "List my routines to confirm it was saved.",
-      "expects": {
-        "tools_used": ["routine_list"],
-        "response_contains": ["morning-tech-news"]
-      },
+      "user_input": "Fire it now.",
       "steps": [
         {
-          "request_hint": { "last_user_message_contains": "list" },
+          "request_hint": { "last_user_message_contains": "fire" },
           "response": {
             "type": "tool_calls",
             "tool_calls": [
               {
-                "id": "call_routine_list",
-                "name": "routine_list",
-                "arguments": {}
+                "id": "call_fire_1",
+                "name": "routine_fire",
+                "arguments": {
+                  "name": "morning-tech-news"
+                }
               }
             ],
             "input_tokens": 250,
-            "output_tokens": 20
+            "output_tokens": 30
           }
         },
         {
           "response": {
             "type": "text",
-            "content": "You have 1 routine:\n\n- **morning-tech-news** (cron, full_job) — Fires weekdays at 9:00 AM. Next fire is scheduled. 0 runs so far, 0 consecutive failures. The routine is enabled and ready.",
-            "input_tokens": 350,
+            "content": "Fired the **morning-tech-news** routine. The job is running now.",
+            "input_tokens": 300,
             "output_tokens": 40
           }
-        }
-      ]
-    },
-    {
-      "user_input": "Great. Now simulate what the routine would do: write a sample tech news digest to memory and show me the summary.",
-      "expects": {
-        "tools_used": ["echo", "memory_write"],
-        "response_contains": ["digest", "saved"]
-      },
-      "steps": [
+        },
         {
-          "request_hint": { "last_user_message_contains": "simulate" },
+          "_comment": "Steps below are consumed by the routine worker (spawned async by routine_fire). The worker hits the same TraceLlm sequentially.",
           "response": {
             "type": "tool_calls",
             "tool_calls": [
               {
-                "id": "call_echo_fetch",
+                "id": "call_rw_echo",
                 "name": "echo",
                 "arguments": {
                   "message": "Fetching tech news headlines..."
                 }
               }
             ],
-            "input_tokens": 180,
-            "output_tokens": 30
+            "input_tokens": 100,
+            "output_tokens": 20
           }
         },
         {
@@ -108,60 +92,43 @@
             "type": "tool_calls",
             "tool_calls": [
               {
-                "id": "call_mw_digest",
+                "id": "call_rw_mw",
                 "name": "memory_write",
                 "arguments": {
-                  "content": "# Tech News Digest - 2026-03-05\n\n## Top Headlines\n\n1. **Rust 2026 Edition Released** - The Rust team announced the 2026 edition with async closures, generator syntax, and improved compile times.\n\n2. **WASM Component Model 1.0 Finalized** - The WebAssembly Component Model reached 1.0, enabling cross-language interoperability in sandboxed environments.\n\n3. **NEAR Protocol Launches AI Agent Framework** - NEAR released an open-source framework for building autonomous AI agents with on-chain identity and payments.\n\n## Summary\nKey themes: systems programming advances, WebAssembly maturation, and AI-blockchain convergence.",
+                  "content": "# Tech News Digest - 2026-03-05\n\n1. **Rust 2026 Edition** - async closures, generator syntax\n2. **WASM Component Model 1.0** - cross-language interop\n3. **NEAR AI Agent Framework** - on-chain identity",
                   "target": "routines/morning-tech-news/digest-2026-03-05.md",
                   "append": false
                 }
               }
             ],
-            "input_tokens": 220,
-            "output_tokens": 80
+            "input_tokens": 150,
+            "output_tokens": 50
           }
         },
         {
-          "response": {
-            "type": "text",
-            "content": "Done! I've simulated the routine workflow:\n\n1. **Fetched headlines** (simulated via echo)\n2. **Saved digest** to `routines/morning-tech-news/digest-2026-03-05.md`\n\nHere's today's summary:\n- Rust 2026 Edition released with async closures and generator syntax\n- WASM Component Model 1.0 finalized for cross-language interop\n- NEAR Protocol launched an AI agent framework with on-chain identity\n\nWhen the routine runs autonomously, it will use `web_fetch` for real headlines and `message` to send you the digest.",
-            "input_tokens": 350,
-            "output_tokens": 60
-          }
-        }
-      ]
-    },
-    {
-      "user_input": "Can you search memory to verify the digest was saved correctly?",
-      "expects": {
-        "tools_used": ["memory_search"],
-        "response_contains": ["Rust", "WASM"]
-      },
-      "steps": [
-        {
-          "request_hint": { "last_user_message_contains": "search" },
           "response": {
             "type": "tool_calls",
             "tool_calls": [
               {
-                "id": "call_ms_verify",
-                "name": "memory_search",
+                "id": "call_rw_msg",
+                "name": "message",
                 "arguments": {
-                  "query": "tech news digest headlines 2026",
-                  "limit": 3
+                  "content": "Tech News Digest:\n- Rust 2026 Edition released\n- WASM Component Model 1.0 finalized\n- NEAR AI Agent Framework launched",
+                  "channel": "test",
+                  "target": "default"
                 }
               }
             ],
-            "input_tokens": 400,
-            "output_tokens": 25
+            "input_tokens": 200,
+            "output_tokens": 30
           }
         },
         {
           "response": {
             "type": "text",
-            "content": "The digest was saved correctly. Memory search found the document at `routines/morning-tech-news/digest-2026-03-05.md` with all three headlines:\n\n1. Rust 2026 Edition with async closures\n2. WASM Component Model 1.0\n3. NEAR Protocol AI Agent Framework\n\nThe routine is ready to run on its cron schedule (weekdays at 9 AM). Each run will overwrite the daily digest and send you a summary via the pre-authorized `message` tool.",
-            "input_tokens": 500,
-            "output_tokens": 55
+            "content": "Done. Digest written and summary sent.",
+            "input_tokens": 250,
+            "output_tokens": 20
           }
         }
       ]
