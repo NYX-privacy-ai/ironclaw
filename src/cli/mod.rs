@@ -86,7 +86,7 @@ pub enum Command {
     /// Interactive onboarding wizard
     #[command(
         about = "Run interactive setup wizard",
-        long_about = "Guides through initial configuration.\nExamples:\n  ironclaw onboard --skip-auth  # Skip auth step\n  ironclaw onboard --channels-only  # Reconfigure channels"
+        long_about = "Guides through initial configuration.\nExamples:\n  ironclaw onboard --skip-auth  # Skip auth step\n  ironclaw onboard --channels-only  # Reconfigure channels\n  ironclaw onboard --provider-only  # Change LLM provider and model"
     )]
     Onboard {
         /// Skip authentication (use existing session)
@@ -96,6 +96,10 @@ pub enum Command {
         /// Reconfigure channels only
         #[arg(long)]
         channels_only: bool,
+
+        /// Reconfigure LLM provider and model only
+        #[arg(long)]
+        provider_only: bool,
     },
 
     /// Manage configuration settings

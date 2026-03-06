@@ -6,6 +6,7 @@ use crate::bootstrap::ironclaw_base_dir;
 use crate::config::helpers::{optional_env, parse_optional_env};
 use crate::error::ConfigError;
 use crate::llm::registry::{ProviderProtocol, ProviderRegistry};
+use crate::llm::session::SessionConfig;
 use crate::settings::Settings;
 
 /// Resolved configuration for a registry-based provider.
@@ -39,6 +40,9 @@ pub struct RegistryProviderConfig {
 pub struct LlmConfig {
     /// Backend identifier (e.g., "nearai", "openai", "groq", "tinfoil").
     pub backend: String,
+    /// Session manager configuration (auth URL, token persistence path).
+    /// Used by the NearAI provider for OAuth/session-token auth.
+    pub session: SessionConfig,
     /// NEAR AI config (always populated, also used for embeddings).
     pub nearai: NearAiConfig,
     /// Resolved provider config for registry-based providers.
@@ -55,10 +59,6 @@ pub struct NearAiConfig {
     pub cheap_model: Option<String>,
     /// Base URL for the NEAR AI API.
     pub base_url: String,
-    /// Base URL for auth/refresh endpoints (default: https://private.near.ai)
-    pub auth_base_url: String,
-    /// Path to session file (default: ~/.ironclaw/session.json)
-    pub session_path: PathBuf,
     /// API key for NEAR AI Cloud.
     pub api_key: Option<SecretString>,
     /// Optional fallback model for failover.
@@ -89,12 +89,14 @@ impl LlmConfig {
     pub fn for_testing() -> Self {
         Self {
             backend: "nearai".to_string(),
+            session: SessionConfig {
+                auth_base_url: "http://localhost:0".to_string(),
+                session_path: PathBuf::from("/tmp/ironclaw-test-session.json"),
+            },
             nearai: NearAiConfig {
                 model: "test-model".to_string(),
                 cheap_model: None,
                 base_url: "http://localhost:0".to_string(),
-                auth_base_url: "http://localhost:0".to_string(),
-                session_path: PathBuf::from("/tmp/ironclaw-test-session.json"),
                 api_key: None,
                 fallback_model: None,
                 max_retries: 0,
@@ -146,6 +148,15 @@ impl LlmConfig {
             );
         }
 
+        // Session config (used by NearAI provider for OAuth/session-token auth)
+        let session = SessionConfig {
+            auth_base_url: optional_env("NEARAI_AUTH_URL")?
+                .unwrap_or_else(|| "https://private.near.ai".to_string()),
+            session_path: optional_env("NEARAI_SESSION_PATH")?
+                .map(PathBuf::from)
+                .unwrap_or_else(default_session_path),
+        };
+
         // Always resolve NEAR AI config (used for embeddings even when not the primary backend)
         let nearai_api_key = optional_env("NEARAI_API_KEY")?.map(SecretString::from);
         let nearai = NearAiConfig {
@@ -158,11 +169,6 @@ impl LlmConfig {
                     "https://private.near.ai".to_string()
                 }
             }),
-            auth_base_url: optional_env("NEARAI_AUTH_URL")?
-                .unwrap_or_else(|| "https://private.near.ai".to_string()),
-            session_path: optional_env("NEARAI_SESSION_PATH")?
-                .map(PathBuf::from)
-                .unwrap_or_else(default_session_path),
             api_key: nearai_api_key,
             fallback_model: optional_env("NEARAI_FALLBACK_MODEL")?,
             max_retries: parse_optional_env("NEARAI_MAX_RETRIES", 3)?,
@@ -199,6 +205,7 @@ impl LlmConfig {
             } else {
                 backend_lower
             },
+            session,
             nearai,
             provider,
         })

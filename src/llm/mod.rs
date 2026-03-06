@@ -418,15 +418,12 @@ pub fn build_provider_chain(
 mod tests {
     use super::*;
     use crate::config::NearAiConfig;
-    use std::path::PathBuf;
 
     fn test_nearai_config() -> NearAiConfig {
         NearAiConfig {
             model: "test-model".to_string(),
             cheap_model: None,
             base_url: "https://api.near.ai".to_string(),
-            auth_base_url: "https://private.near.ai".to_string(),
-            session_path: PathBuf::from("/tmp/test-session.json"),
             api_key: None,
             fallback_model: None,
             max_retries: 3,
@@ -444,6 +441,7 @@ mod tests {
     fn test_llm_config() -> LlmConfig {
         LlmConfig {
             backend: "nearai".to_string(),
+            session: SessionConfig::default(),
             nearai: test_nearai_config(),
             provider: None,
         }

@@ -138,10 +138,18 @@ impl NearAiChatProvider {
     }
 
     /// Resolve the Bearer token for the current auth mode.
+    ///
+    /// For session token auth: if no token exists yet, triggers the
+    /// interactive login flow (OAuth or API key entry). This makes the
+    /// provider self-sufficient for authentication, no caller needs to
+    /// pre-check `ensure_authenticated`.
     async fn resolve_bearer_token(&self) -> Result<String, LlmError> {
         if let Some(ref api_key) = self.config.api_key {
             Ok(api_key.expose_secret().to_string())
         } else {
+            if !self.session.has_token().await {
+                self.session.ensure_authenticated().await?;
+            }
             let token = self.session.get_token().await?;
             Ok(token.expose_secret().to_string())
         }
@@ -983,8 +991,6 @@ mod tests {
         NearAiConfig {
             model: "test-model".to_string(),
             base_url: base_url.to_string(),
-            auth_base_url: "https://private.near.ai".to_string(),
-            session_path: std::path::PathBuf::from("/tmp/session.json"),
             api_key: Some(secrecy::SecretString::from("test-key".to_string())),
             cheap_model: None,
             fallback_model: None,

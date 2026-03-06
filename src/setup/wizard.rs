@@ -73,6 +73,8 @@ pub struct SetupConfig {
     pub skip_auth: bool,
     /// Only reconfigure channels.
     pub channels_only: bool,
+    /// Only reconfigure LLM provider and model selection.
+    pub provider_only: bool,
 }
 
 /// Interactive setup wizard for IronClaw.
@@ -144,6 +146,16 @@ impl SetupWizard {
             self.reconnect_existing_db().await?;
             print_step(1, 1, "Channel Configuration");
             self.step_channels().await?;
+        } else if self.config.provider_only {
+            // Provider-only mode: reconnect to existing DB, then run just
+            // inference provider + model selection steps.
+            self.reconnect_existing_db().await?;
+            print_step(1, 2, "Inference Provider");
+            self.step_inference_provider().await?;
+            self.persist_after_step().await;
+            print_step(2, 2, "Model Selection");
+            self.step_model_selection().await?;
+            self.persist_after_step().await;
         } else {
             let total_steps = 9;
 
@@ -1305,12 +1317,14 @@ impl SetupWizard {
 
         let config = LlmConfig {
             backend: "nearai".to_string(),
+            session: crate::llm::session::SessionConfig {
+                auth_base_url,
+                session_path: crate::llm::session::default_session_path(),
+            },
             nearai: crate::config::NearAiConfig {
                 model: "dummy".to_string(),
                 cheap_model: None,
                 base_url,
-                auth_base_url,
-                session_path: crate::llm::session::default_session_path(),
                 api_key: None,
                 fallback_model: None,
                 max_retries: 3,
@@ -3058,6 +3072,7 @@ mod tests {
         let config = SetupConfig {
             skip_auth: true,
             channels_only: false,
+            provider_only: false,
         };
         let wizard = SetupWizard::with_config(config);
         assert!(wizard.config.skip_auth);
