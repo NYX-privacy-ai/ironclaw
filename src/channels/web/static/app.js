@@ -1268,7 +1268,7 @@ function threadTitle(thread) {
   if (thread.title) return thread.title;
   const ch = thread.channel || 'gateway';
   if (thread.thread_type === 'heartbeat') return 'Heartbeat Alerts';
-  if (thread.thread_type === 'routine') return 'Routine: ' + (thread.title || thread.id.substring(0, 8));
+  if (thread.thread_type === 'routine') return 'Routine: ' + thread.id.substring(0, 8);
   if (ch !== 'gateway') return ch.charAt(0).toUpperCase() + ch.slice(1);
   return thread.id.substring(0, 8);
 }

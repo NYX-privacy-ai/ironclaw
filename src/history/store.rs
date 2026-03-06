@@ -1548,7 +1548,9 @@ impl Store {
             r#"
             INSERT INTO conversations (id, channel, user_id, metadata)
             VALUES ($1, 'routine', $2, $3)
-            ON CONFLICT ON CONSTRAINT uq_conv_routine DO NOTHING
+            ON CONFLICT (user_id, (metadata->>'routine_id'))
+                WHERE metadata->>'routine_id' IS NOT NULL
+                DO NOTHING
             "#,
             &[&new_id, &user_id, &metadata],
         )
@@ -1590,7 +1592,9 @@ impl Store {
             r#"
             INSERT INTO conversations (id, channel, user_id, metadata)
             VALUES ($1, 'heartbeat', $2, $3)
-            ON CONFLICT ON CONSTRAINT uq_conv_heartbeat DO NOTHING
+            ON CONFLICT (user_id)
+                WHERE metadata->>'thread_type' = 'heartbeat'
+                DO NOTHING
             "#,
             &[&new_id, &user_id, &metadata],
         )
