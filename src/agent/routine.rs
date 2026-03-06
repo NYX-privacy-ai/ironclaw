@@ -191,6 +191,19 @@ fn default_max_iterations() -> u32 {
     10
 }
 
+/// Parse a `tool_permissions` JSON array into a `Vec<String>`.
+pub fn parse_tool_permissions(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("tool_permissions")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 impl RoutineAction {
     /// The string tag stored in the DB action_type column.
     pub fn type_tag(&self) -> &'static str {
@@ -253,15 +266,7 @@ impl RoutineAction {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(default_max_iterations() as u64)
                     as u32;
-                let tool_permissions = config
-                    .get("tool_permissions")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let tool_permissions = parse_tool_permissions(&config);
                 Ok(RoutineAction::FullJob {
                     title,
                     description,

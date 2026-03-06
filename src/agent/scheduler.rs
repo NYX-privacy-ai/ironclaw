@@ -314,6 +314,8 @@ impl Scheduler {
                 let context_manager = self.context_manager.clone();
                 let safety = self.safety.clone();
 
+                // TODO: propagate parent job's ApprovalContext here when subtasks
+                // are used in autonomous/routine paths (currently only used in tests).
                 tokio::spawn(async move {
                     let result = Self::execute_tool_task(
                         tools,
@@ -473,10 +475,8 @@ impl Scheduler {
         }
 
         let requirement = tool.requires_approval(&params);
-        let blocked = match &approval_context {
-            Some(ctx) => ctx.is_blocked(tool_name, requirement),
-            None => requirement.is_required(),
-        };
+        let blocked =
+            ApprovalContext::is_blocked_or_default(&approval_context, tool_name, requirement);
         if blocked {
             return Err(crate::error::ToolError::AuthRequired {
                 name: tool_name.to_string(),

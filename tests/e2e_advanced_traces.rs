@@ -257,7 +257,7 @@ mod advanced {
     // Exercises the full routine execution stack:
     //   routine_create → routine_fire → RoutineEngine::fire_manual →
     //   Scheduler::dispatch_job_with_context → Worker (autonomous) →
-    //   echo + memory_write + message (broadcast to test channel)
+    //   http + memory_write + message (broadcast to test channel)
     // -----------------------------------------------------------------------
 
     #[tokio::test]
@@ -324,11 +324,16 @@ mod advanced {
         // The routine worker runs asynchronously, so we wait for 3 total responses.
         let responses = rig.wait_for_responses(3, Duration::from_secs(15)).await;
 
-        // Find the main conversation reply (from turn 2).
-        let fire_reply = &responses[1].content.to_lowercase();
+        // Find the main conversation reply (from turn 2) by content, since
+        // the routine worker runs asynchronously and may interleave messages.
+        let fire_reply = responses.iter().find(|r| {
+            let c = r.content.to_lowercase();
+            c.contains("fired") || c.contains("running")
+        });
         assert!(
-            fire_reply.contains("fired") || fire_reply.contains("running"),
-            "Turn 2: expected fired/running, got: {fire_reply}"
+            fire_reply.is_some(),
+            "Turn 2: expected fired/running, got: {:?}",
+            responses.iter().map(|r| &r.content).collect::<Vec<_>>()
         );
 
         // The routine worker runs autonomously: http → memory_write → message.

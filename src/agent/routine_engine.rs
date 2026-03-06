@@ -442,6 +442,8 @@ async fn execute_full_job(
 
     // Set the message tool's default channel/target from the routine's notify config
     // so the LLM can send results without triggering cross-channel approval.
+    // TODO: This mutates shared global state and can race with concurrent jobs.
+    // Move notify config into JobContext metadata and apply per-job instead.
     if let Some(channel) = &routine.notify.channel {
         scheduler
             .tools()

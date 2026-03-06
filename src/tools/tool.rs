@@ -28,11 +28,11 @@ impl ApprovalRequirement {
     }
 }
 
-/// Approval context for tool execution in different environments.
+/// Approval context for autonomous tool execution (routines, background jobs).
 ///
-/// Interactive sessions use session-level auto-approve lists managed by the UI.
-/// Autonomous contexts (routines, background jobs) use pre-authorized tool sets
-/// configured at creation time.
+/// Interactive sessions don't use this type — they rely on session-level
+/// auto-approve lists managed by the UI. This enum models only the autonomous
+/// case where no interactive user is present.
 #[derive(Debug, Clone)]
 pub enum ApprovalContext {
     /// Autonomous job with no interactive user. `UnlessAutoApproved` tools are
@@ -66,6 +66,20 @@ impl ApprovalContext {
                 ApprovalRequirement::UnlessAutoApproved => false,
                 ApprovalRequirement::Always => !allowed_tools.contains(tool_name),
             },
+        }
+    }
+
+    /// Check whether a tool is blocked given an optional context.
+    ///
+    /// When `None`, falls back to legacy behavior: all non-`Never` tools are blocked.
+    pub fn is_blocked_or_default(
+        context: &Option<Self>,
+        tool_name: &str,
+        requirement: ApprovalRequirement,
+    ) -> bool {
+        match context {
+            Some(ctx) => ctx.is_blocked(tool_name, requirement),
+            None => requirement.is_required(),
         }
     }
 }
@@ -797,5 +811,45 @@ mod tests {
     fn test_approval_context_never_always_passes() {
         let ctx = ApprovalContext::autonomous();
         assert!(!ctx.is_blocked("any_tool", ApprovalRequirement::Never));
+    }
+
+    #[test]
+    fn test_is_blocked_or_default_with_none_uses_legacy() {
+        // None context: all non-Never tools are blocked
+        assert!(!ApprovalContext::is_blocked_or_default(
+            &None,
+            "any",
+            ApprovalRequirement::Never
+        ));
+        assert!(ApprovalContext::is_blocked_or_default(
+            &None,
+            "any",
+            ApprovalRequirement::UnlessAutoApproved
+        ));
+        assert!(ApprovalContext::is_blocked_or_default(
+            &None,
+            "any",
+            ApprovalRequirement::Always
+        ));
+    }
+
+    #[test]
+    fn test_is_blocked_or_default_with_some_delegates() {
+        let ctx = Some(ApprovalContext::autonomous_with_tools(["shell".to_string()]));
+        assert!(!ApprovalContext::is_blocked_or_default(
+            &ctx,
+            "shell",
+            ApprovalRequirement::Always
+        ));
+        assert!(ApprovalContext::is_blocked_or_default(
+            &ctx,
+            "other",
+            ApprovalRequirement::Always
+        ));
+        assert!(!ApprovalContext::is_blocked_or_default(
+            &ctx,
+            "any",
+            ApprovalRequirement::UnlessAutoApproved
+        ));
     }
 }

@@ -199,15 +199,7 @@ impl Tool for RoutineCreateTool {
                 max_tokens: 4096,
             },
             "full_job" => {
-                let tool_permissions = params
-                    .get("tool_permissions")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let tool_permissions = crate::agent::routine::parse_tool_permissions(&params);
                 RoutineAction::FullJob {
                     title: name.to_string(),
                     description: prompt.to_string(),

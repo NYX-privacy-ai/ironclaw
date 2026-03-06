@@ -684,10 +684,8 @@ Report when the job is complete or if you encounter issues you cannot resolve."#
 
         // Check approval: use context-aware check if available, else block all non-Never tools
         let requirement = tool.requires_approval(params);
-        let blocked = match &deps.approval_context {
-            Some(ctx) => ctx.is_blocked(tool_name, requirement),
-            None => requirement.is_required(),
-        };
+        let blocked =
+            ApprovalContext::is_blocked_or_default(&deps.approval_context, tool_name, requirement);
         if blocked {
             return Err(crate::error::ToolError::AuthRequired {
                 name: tool_name.to_string(),
@@ -1517,11 +1515,10 @@ mod tests {
         );
     }
 
-    /// Regression test: calling mark_completed on an already-Completed job must
-    /// not surface as an error. The outer `run()` guards should skip the second
-    /// transition instead of attempting Completed → Completed.
+    /// Verify that calling mark_completed on an already-Completed job returns
+    /// an error (Completed → Completed is an invalid state transition).
     #[tokio::test]
-    async fn test_mark_completed_twice_does_not_error() {
+    async fn test_mark_completed_twice_returns_error() {
         let worker = make_worker(vec![]).await;
 
         // Transition to InProgress first (required by state machine)
