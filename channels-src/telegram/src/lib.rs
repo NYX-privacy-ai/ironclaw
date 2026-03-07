@@ -480,17 +480,18 @@ impl Guest for TelegramChannel {
         );
 
         let headers_json = serde_json::json!({}).to_string();
-        let primary_url = get_updates_url(offset, 30);
+        let primary_url = get_updates_url(offset, 25);
 
-        // 35s HTTP timeout outlives Telegram's 30s server-side long-poll.
+        // 28s HTTP timeout outlives Telegram's 25s server-side long-poll
+        // while staying under the WASM host's 30s callback timeout.
         // If the TCP connection drops, retry once immediately with a short poll
-        // so we don't wait a full extra tick (~30s) before delivering updates.
+        // so we don't wait a full extra tick before delivering updates.
         let result = match channel_host::http_request(
             "GET",
             &primary_url,
             &headers_json,
             None,
-            Some(35_000),
+            Some(28_000),
         ) {
             Ok(response) => Ok(response),
             Err(primary_err) => {
@@ -1511,9 +1512,9 @@ mod tests {
 
     #[test]
     fn test_get_updates_url_includes_offset_and_timeout() {
-        let url = get_updates_url(444_809_884, 30);
+        let url = get_updates_url(444_809_884, 25);
         assert!(url.contains("offset=444809884"));
-        assert!(url.contains("timeout=30"));
+        assert!(url.contains("timeout=25"));
         assert!(url.contains("allowed_updates=[\"message\",\"edited_message\"]"));
     }
 
