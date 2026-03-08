@@ -1159,12 +1159,15 @@ fn handle_message(message: TelegramMessage) {
         None => return,
     };
 
-    // Emit the message to the agent
+    // Emit the message to the agent.
+    // Use chat_id as thread_id so IronClaw's session manager maps all
+    // messages from this chat to the same persistent conversation thread,
+    // preserving context across messages.
     channel_host::emit_message(&EmittedMessage {
         user_id: from.id.to_string(),
         user_name: Some(user_name),
         content: content_to_emit,
-        thread_id: None, // Telegram doesn't have threads in the same way
+        thread_id: Some(message.chat.id.to_string()),
         metadata_json,
     });
 
