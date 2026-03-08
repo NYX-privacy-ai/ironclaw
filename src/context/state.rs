@@ -38,6 +38,13 @@ impl JobState {
     pub fn can_transition_to(&self, target: JobState) -> bool {
         use JobState::*;
 
+        // Idempotent: transitioning to the same state is always a no-op success.
+        // This prevents "Cannot transition from completed to completed" errors
+        // when multiple code paths race to mark a job complete.
+        if *self == target {
+            return true;
+        }
+
         matches!(
             (self, target),
             // From Pending
@@ -217,6 +224,11 @@ impl JobContext {
                 "Cannot transition from {} to {}",
                 self.state, new_state
             ));
+        }
+
+        // Idempotent: already in the target state, nothing to do.
+        if self.state == new_state {
+            return Ok(());
         }
 
         let transition = StateTransition {

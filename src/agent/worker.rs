@@ -246,6 +246,10 @@ Report when the job is complete or if you encounter issues you cannot resolve."#
                         // Already in a terminal state (e.g. execution_loop
                         // called mark_completed itself).
                     }
+                    Ok(JobState::Completed) => {
+                        // Already marked completed by execution_loop;
+                        // don't call mark_completed again.
+                    }
                     Ok(JobState::Stuck) => {
                         // execution_loop marked this as stuck (e.g. "plan
                         // completed but work remains"); leave for self-repair.
