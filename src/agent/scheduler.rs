@@ -200,10 +200,21 @@ impl Scheduler {
             jobs.insert(job_id, ScheduledJob { handle, tx });
         }
 
-        // Cleanup task for this job to avoid capacity leaks
+        // Cleanup task for this job to avoid capacity leaks.
+        //
+        // Checks every second whether the worker's JoinHandle has finished
+        // and removes the entry from the jobs HashMap.  Also enforces a hard
+        // ceiling (2 hours): if a worker has been running longer than that,
+        // it is forcibly evicted from the HashMap so it no longer counts
+        // against `max_parallel_jobs`.  The JoinHandle is aborted in that
+        // case to free any resources the worker still holds.
         let jobs = Arc::clone(&self.jobs);
+        let max_job_lifetime = Duration::from_secs(2 * 60 * 60); // 2 hours
         tokio::spawn(async move {
+            let start = tokio::time::Instant::now();
             loop {
+                let elapsed = start.elapsed();
+
                 let finished = {
                     let jobs_read = jobs.read().await;
                     match jobs_read.get(&job_id) {
@@ -214,6 +225,22 @@ impl Scheduler {
 
                 if finished {
                     jobs.write().await.remove(&job_id);
+                    break;
+                }
+
+                // Hard ceiling: evict jobs that have been running too long
+                // to prevent stale entries from exhausting the parallel-job
+                // capacity.
+                if elapsed > max_job_lifetime {
+                    tracing::warn!(
+                        job_id = %job_id,
+                        elapsed_secs = elapsed.as_secs(),
+                        "Evicting long-running job from scheduler (exceeded {} second ceiling)",
+                        max_job_lifetime.as_secs(),
+                    );
+                    if let Some(stale) = jobs.write().await.remove(&job_id) {
+                        stale.handle.abort();
+                    }
                     break;
                 }
 
