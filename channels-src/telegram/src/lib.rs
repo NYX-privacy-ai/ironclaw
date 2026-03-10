@@ -585,13 +585,14 @@ impl Guest for TelegramChannel {
         let metadata: TelegramMessageMetadata = serde_json::from_str(&response.metadata_json)
             .map_err(|e| format!("Failed to parse metadata: {}", e))?;
 
-        // Try sending with Markdown first; fall back to plain text if Telegram
-        // can't parse the entities (e.g. model leaked <tool_call> with underscores).
+        // Convert standard markdown (from Claude) to Telegram-compatible HTML,
+        // then send with HTML parse_mode.  Falls back to plain text on failure.
+        let html_content = markdown_to_telegram_html(&response.content);
         let result = send_message(
             metadata.chat_id,
-            &response.content,
+            &html_content,
             Some(metadata.message_id),
-            Some("Markdown"),
+            Some("HTML"),
         );
 
         match result {
@@ -717,6 +718,154 @@ impl Guest for TelegramChannel {
 }
 
 // ============================================================================
+// Markdown → Telegram HTML Converter
+// ============================================================================
+
+/// Convert standard markdown (as emitted by Claude) to Telegram-compatible HTML.
+///
+/// Telegram's HTML mode supports: `<b>`, `<i>`, `<code>`, `<pre>`, `<a href>`.
+/// This handles the most common markdown constructs the LLM produces:
+///   - `# Heading`  → `<b>Heading</b>`
+///   - `**bold**`   → `<b>bold</b>`
+///   - `*italic*`   → `<i>italic</i>`
+///   - `` `code` `` → `<code>code</code>`
+///   - ```lang\n...\n``` → `<pre>...</pre>`
+///   - `[text](url)` → `<a href="url">text</a>`
+///
+/// HTML special characters (`<`, `>`, `&`) in plain text are escaped first.
+fn markdown_to_telegram_html(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    let mut in_code_block = false;
+
+    for line in md.lines() {
+        if line.starts_with("```") {
+            if in_code_block {
+                out.push_str("</pre>\n");
+                in_code_block = false;
+            } else {
+                out.push_str("<pre>");
+                in_code_block = true;
+            }
+            continue;
+        }
+
+        if in_code_block {
+            out.push_str(&escape_html(line));
+            out.push('\n');
+            continue;
+        }
+
+        // Strip heading markers → bold
+        let line = if line.starts_with("### ") {
+            format!("<b>{}</b>", escape_html(line.trim_start_matches('#').trim()))
+        } else if line.starts_with("## ") {
+            format!("<b>{}</b>", escape_html(line.trim_start_matches('#').trim()))
+        } else if line.starts_with("# ") {
+            format!("<b>{}</b>", escape_html(line.trim_start_matches('#').trim()))
+        } else {
+            convert_inline_markdown(&escape_html(line))
+        };
+
+        out.push_str(&line);
+        out.push('\n');
+    }
+
+    // Close unclosed code block
+    if in_code_block {
+        out.push_str("</pre>\n");
+    }
+
+    out.trim_end().to_string()
+}
+
+/// Escape HTML special characters.
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Convert inline markdown: **bold**, *italic*, `code`, [text](url).
+fn convert_inline_markdown(s: &str) -> String {
+    let mut result = s.to_string();
+
+    // **bold** → <b>bold</b> (must come before single *)
+    while let Some(start) = result.find("**") {
+        if let Some(end) = result[start + 2..].find("**") {
+            let inner = &result[start + 2..start + 2 + end].to_string();
+            result = format!(
+                "{}<b>{}</b>{}",
+                &result[..start],
+                inner,
+                &result[start + 2 + end + 2..]
+            );
+        } else {
+            break;
+        }
+    }
+
+    // *italic* → <i>italic</i> (avoid matching inside <b> tags)
+    // Simple approach: only match *word* patterns not adjacent to other *
+    let mut out = String::with_capacity(result.len());
+    let chars: Vec<char> = result.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '*' && (i == 0 || chars[i - 1] != '*') {
+            // Find closing *
+            if let Some(end) = chars[i + 1..].iter().position(|&c| c == '*') {
+                let inner: String = chars[i + 1..i + 1 + end].iter().collect();
+                if !inner.is_empty() && !inner.starts_with(' ') && !inner.ends_with(' ') {
+                    out.push_str(&format!("<i>{}</i>", inner));
+                    i = i + 1 + end + 1;
+                    continue;
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    result = out;
+
+    // `code` → <code>code</code>
+    while let Some(start) = result.find('`') {
+        if let Some(end) = result[start + 1..].find('`') {
+            let inner = &result[start + 1..start + 1 + end].to_string();
+            result = format!(
+                "{}<code>{}</code>{}",
+                &result[..start],
+                inner,
+                &result[start + 1 + end + 1..]
+            );
+        } else {
+            break;
+        }
+    }
+
+    // [text](url) → <a href="url">text</a>
+    while let Some(bracket_start) = result.find('[') {
+        if let Some(bracket_end) = result[bracket_start..].find("](") {
+            let abs_bracket_end = bracket_start + bracket_end;
+            if let Some(paren_end) = result[abs_bracket_end + 2..].find(')') {
+                let text = &result[bracket_start + 1..abs_bracket_end].to_string();
+                let url = &result[abs_bracket_end + 2..abs_bracket_end + 2 + paren_end].to_string();
+                result = format!(
+                    "{}<a href=\"{}\">{}</a>{}",
+                    &result[..bracket_start],
+                    url,
+                    text,
+                    &result[abs_bracket_end + 2 + paren_end + 1..]
+                );
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    result
+}
+
 // Send Message Helper
 // ============================================================================
 
