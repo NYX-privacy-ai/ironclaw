@@ -465,6 +465,7 @@ impl AppBuilder {
             let mcp_sm = Arc::clone(&mcp_session_manager);
             let pm = Arc::clone(&mcp_process_manager);
             async move {
+                let mut startup_clients: Vec<(String, Arc<crate::tools::mcp::McpClient>)> = Vec::new();
                 let servers_result = if let Some(ref d) = db {
                     load_mcp_servers_from_db(d.as_ref(), "default").await
                 } else {
@@ -506,7 +507,7 @@ impl AppBuilder {
                                             server_name,
                                             e
                                         );
-                                        return;
+                                        return None;
                                     }
                                 };
 
@@ -523,6 +524,7 @@ impl AppBuilder {
                                                     tool_count,
                                                     server_name
                                                 );
+                                                Some((server_name, Arc::new(client)))
                                             }
                                             Err(e) => {
                                                 tracing::warn!(
@@ -530,6 +532,7 @@ impl AppBuilder {
                                                     server_name,
                                                     e
                                                 );
+                                                None
                                             }
                                         }
                                     }
@@ -551,14 +554,21 @@ impl AppBuilder {
                                                 e
                                             );
                                         }
+                                        None
                                     }
                                 }
                             });
                         }
 
                         while let Some(result) = join_set.join_next().await {
-                            if let Err(e) = result {
-                                tracing::warn!("MCP server loading task panicked: {}", e);
+                            match result {
+                                Ok(Some(client_pair)) => {
+                                    startup_clients.push(client_pair);
+                                }
+                                Ok(None) => {}
+                                Err(e) => {
+                                    tracing::warn!("MCP server loading task panicked: {}", e);
+                                }
                             }
                         }
                     }
@@ -566,10 +576,11 @@ impl AppBuilder {
                         tracing::debug!("No MCP servers configured ({})", e);
                     }
                 }
+                startup_clients
             }
         };
 
-        let (dev_loaded_tool_names, _) = tokio::join!(wasm_tools_future, mcp_servers_future);
+        let (dev_loaded_tool_names, startup_mcp_clients) = tokio::join!(wasm_tools_future, mcp_servers_future);
 
         // Load registry catalog entries for extension discovery
         let mut catalog_entries = match crate::registry::RegistryCatalog::load_or_embedded() {
@@ -630,6 +641,17 @@ impl AppBuilder {
                 catalog_entries.clone(),
             ));
             tools.register_extension_tools(Arc::clone(&manager));
+            // Inject pre-loaded MCP clients so tool_list reports them as active
+            // without requiring a separate tool_activate call after startup.
+            if !startup_mcp_clients.is_empty() {
+                tracing::info!(
+                    "Injecting {} startup MCP client(s) into extension manager",
+                    startup_mcp_clients.len()
+                );
+                for (name, client) in startup_mcp_clients {
+                    manager.inject_mcp_client(name, client).await;
+                }
+            }
             tracing::debug!("Extension manager initialized with in-chat discovery tools");
             Some(manager)
         };

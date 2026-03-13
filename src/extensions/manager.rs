@@ -194,6 +194,13 @@ impl ExtensionManager {
         }
     }
 
+    /// Inject a pre-created MCP client (from startup loading) into the manager.
+    /// This ensures `tool_list` reports the server as active without requiring
+    /// a separate `tool_activate` call after daemon restart.
+    pub async fn inject_mcp_client(&self, name: String, client: Arc<McpClient>) {
+        self.mcp_clients.write().await.insert(name, client);
+    }
+
     /// Get the relay config stored at startup.
     fn relay_config(&self) -> Result<&crate::config::RelayConfig, ExtensionError> {
         self.relay_config.as_ref().ok_or_else(|| {
