@@ -610,8 +610,36 @@ impl Agent {
                     let notify_user = heartbeat_notify_user;
                     let channels = self.channels.clone();
                     let is_multi_tenant = hb_config.multi_tenant;
+                    let session_mgr_for_notify = self.session_manager.clone();
+                    let owner_id_for_notify = self.owner_id().to_string();
                     tokio::spawn(async move {
                         while let Some(response) = notify_rx.recv().await {
+                            // Inject notification as a context note in the user's
+                            // thread so the LLM has background when the user replies.
+                            if let Some(ref channel) = notify_channel {
+                                let user_id = &owner_id_for_notify;
+                                let (session, thread_id) = session_mgr_for_notify
+                                    .resolve_thread(user_id, channel, None)
+                                    .await;
+                                let mut sess = session.lock().await;
+                                if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                                    let routine_name = response.metadata
+                                        .get("routine_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("routine");
+                                    thread.add_context_note(format!(
+                                        "[{}] {}",
+                                        routine_name,
+                                        response.content
+                                    ));
+                                    tracing::debug!(
+                                        routine = %routine_name,
+                                        thread_id = %thread_id,
+                                        "Injected routine notification into user thread for context"
+                                    );
+                                }
+                            }
+
                             // In multi-tenant mode, extract the owning user_id from
                             // the response metadata so notifications reach the
                             // correct user rather than the agent's owner.
@@ -733,6 +761,8 @@ impl Agent {
                     // Spawn notification forwarder (mirrors heartbeat pattern)
                     let channels = self.channels.clone();
                     let extension_manager = self.deps.extension_manager.clone();
+                    let session_mgr_for_routines = self.session_manager.clone();
+                    let owner_id_for_routines = self.owner_id().to_string();
                     tokio::spawn(async move {
                         while let Some(response) = notify_rx.recv().await {
                             let notify_channel = response
@@ -740,6 +770,31 @@ impl Agent {
                                 .get("notify_channel")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
+
+                            // Inject notification as context note in user's thread
+                            if let Some(ref channel) = notify_channel {
+                                let (session, thread_id) = session_mgr_for_routines
+                                    .resolve_thread(&owner_id_for_routines, channel, None)
+                                    .await;
+                                let mut sess = session.lock().await;
+                                if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                                    let routine_name = response.metadata
+                                        .get("routine_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("routine");
+                                    thread.add_context_note(format!(
+                                        "[{}] {}",
+                                        routine_name,
+                                        response.content
+                                    ));
+                                    tracing::debug!(
+                                        routine = %routine_name,
+                                        thread_id = %thread_id,
+                                        "Injected routine notification into user thread for context"
+                                    );
+                                }
+                            }
+
                             let fallback_user = resolve_owner_scope_notification_user(
                                 response
                                     .metadata

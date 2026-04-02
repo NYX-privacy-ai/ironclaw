@@ -74,7 +74,10 @@ impl JobState {
 
     /// Check if this is a terminal state.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Accepted | Self::Failed | Self::Cancelled)
+        matches!(
+            self,
+            Self::Accepted | Self::Completed | Self::Submitted | Self::Failed | Self::Cancelled
+        )
     }
 
     /// Check if the job is active (not terminal).

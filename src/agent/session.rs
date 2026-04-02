@@ -225,6 +225,11 @@ pub struct Thread {
     /// Messages queued while the thread was processing a turn.
     #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
     pub pending_messages: VecDeque<String>,
+    /// System-level context notes (e.g., routine notifications).
+    /// Injected as system messages at the start of the conversation
+    /// so the LLM has context without polluting the turn history.
+    #[serde(default)]
+    pub context_notes: Vec<String>,
 }
 
 /// Maximum number of messages that can be queued while a thread is processing.
@@ -248,6 +253,7 @@ impl Thread {
             pending_approval: None,
             pending_auth: None,
             pending_messages: VecDeque::new(),
+            context_notes: Vec::new(),
         }
     }
 
@@ -265,7 +271,17 @@ impl Thread {
             pending_approval: None,
             pending_auth: None,
             pending_messages: VecDeque::new(),
+            context_notes: Vec::new(),
         }
+    }
+
+    /// Add a system-level context note to the thread.
+    pub fn add_context_note(&mut self, note: String) {
+        if self.context_notes.len() >= 10 {
+            self.context_notes.remove(0);
+        }
+        self.context_notes.push(note);
+        self.updated_at = Utc::now();
     }
 
     /// Get the current turn number (1-indexed for display).
@@ -414,6 +430,14 @@ impl Thread {
     /// completed actions in subsequent turns.
     pub fn messages(&self) -> Vec<ChatMessage> {
         let mut messages = Vec::new();
+        // Inject context notes as system messages for background context
+        if !self.context_notes.is_empty() {
+            let combined = self.context_notes.join("\n\n");
+            messages.push(ChatMessage::system(format!(
+                "[Recent notifications sent to you — use as context if the user references them]\n{}",
+                combined
+            )));
+        }
         // We use the enumeration index (`turn_idx`) rather than `turn.turn_number`
         // intentionally: after `truncate_turns()`, the remaining turns are
         // re-numbered starting from 0, so the enumeration index and turn_number

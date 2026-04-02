@@ -1063,7 +1063,31 @@ impl FullJobWatcher {
             tokio::time::sleep(Self::POLL_INTERVAL).await;
         };
 
-        let summary = format!("Job {} finished ({})", self.job_id, final_status);
+        // Extract the actual job output from job_events so the notification
+        // contains the heartbeat report, not just a generic status line.
+        let summary = match self.store.list_job_events(self.job_id, Some(50)).await {
+            Ok(events) => {
+                let last_message = events.iter().rev().find_map(|evt| {
+                    if evt.event_type == "message" {
+                        let data = &evt.data;
+                        if data.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                            return data.get("content").and_then(|c| c.as_str()).map(String::from);
+                        }
+                    }
+                    None
+                });
+                last_message.unwrap_or_else(|| {
+                    format!("Job {} finished ({})", self.job_id, final_status)
+                })
+            }
+            Err(e) => {
+                tracing::debug!(
+                    routine = %self.routine_name,
+                    "Could not read job events for summary: {}", e
+                );
+                format!("Job {} finished ({})", self.job_id, final_status)
+            }
+        };
         (final_status, Some(summary))
     }
 
